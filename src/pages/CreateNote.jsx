@@ -6,14 +6,17 @@ import { Link, useNavigate } from "react-router-dom";
 import { IoIosArrowBack } from "react-icons/io";
 import { BsFillMicFill } from 'react-icons/bs';
 import { MdAutoAwesome } from 'react-icons/md';
-
 import useCreateDate from "../components/useCreateDate";
+import { GoogleGenerativeAI } from "@google/generative-ai";
+import Spinner from '../components/Spinner';
 
-const API_KEY = "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"; // secure -> environment variable
+const API_KEY = import.meta.env.VITE_APP_GEMINI_API_KEY;
+const genAI = new GoogleGenerativeAI(API_KEY);
 
 const CreateNote = ({ setNotes }) => {
   const [title, setTitle] = useState("");
   const [details, setDetails] = useState("");
+  const [loading, setLoading] = useState(false);
   const date = useCreateDate();
   const navigate = useNavigate();
   const [isRecording, setIsRecording] = useState(false);
@@ -41,7 +44,6 @@ const CreateNote = ({ setNotes }) => {
     setIsRecording(false);
   };
 
-  // Use useEffect to update the 'details' state with the combined transcript
   useEffect(() => {
     if (isRecording) {
       setDetails(previousTranscript + ' ' + transcript);
@@ -58,58 +60,65 @@ const CreateNote = ({ setNotes }) => {
 
     if (title && details) {
       try {
-        // Call the OpenAI API to correct and punctuate the text
-        const correctedText = await callOpenAIAPI(details);
+        // Call the Gemini AI API to correct and punctuate the text
+        setLoading(true); // Set loading to true before calling API
+        const correctedText = await callGeminiAPI(details);
+        setLoading(false); // Set loading to false after API call
 
         const note = { id: uuid(), title, details: correctedText, date };
         setNotes((prevNotes) => [note, ...prevNotes]);
         navigate("/");
       } catch (error) {
+        setLoading(false); // Set loading to false if there's an error
         console.error("Error while handling the form submit:", error);
       }
     }
   };
 
-  const callOpenAIAPI = async (text) => {
-    const APIBody = {
-      "model": "text-davinci-003",
-      "prompt": "Correct the following text: " + text,
-      "temperature": 0,
-      "max_tokens": 60,
-      "top_p": 1.0,
-      "frequency_penalty": 0.0,
-      "presence_penalty": 0.0
+  const callGeminiAPI = async (text) => {
+    const model = genAI.getGenerativeModel({
+      model: "gemini-1.5-flash",
+    });
+
+    const generationConfig = {
+      temperature: 0.7,
+      topP: 0.95,
+      topK: 64,
+      maxOutputTokens: 64,
+      responseMimeType: "text/plain",
     };
-  
-    try {
-      const response = await fetch("https://api.openai.com/v1/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer " + API_KEY
+
+    const chatSession = model.startChat({
+      generationConfig,
+      history: [
+        {
+          role: "user",
+          parts: [{ text: `You will be provided with statements, and your task is to rewrite them correctly in standard English. "${text}"` }],
         },
-        body: JSON.stringify(APIBody)
-      });
-  
-      if (!response.ok) {
-        throw new Error("OpenAI API request failed with status: " + response.status);
-      }
-  
-      const data = await response.json();
-  
-      if (data.choices && data.choices.length > 0) {
-        return data.choices[0].text.trim();
-      } else {
-        console.error("Empty or invalid response from OpenAI API.");
-        return text; // Return the original text in case of an empty or invalid response
-      }
+      ],
+    });
+
+    try {
+      const result = await chatSession.sendMessage("");
+      return result.response.text() || text;
     } catch (error) {
-      console.error("Error calling OpenAI API:", error);
-      return text; // Return the original text in case of an error
+      console.error("Error calling Gemini AI API:", error);
+      return text;
     }
   };
-  
-  
+
+  const handleAICorrection = async () => {
+    try {
+      setLoading(true); 
+      const correctedText = await callGeminiAPI(details);
+      setLoading(false);
+      setDetails(correctedText);
+    } catch (error) {
+      setLoading(false);
+      console.error("Error while correcting text with AI:", error);
+    }
+  };
+
   if (!browserSupportsSpeechRecognition) {
     return null;
   }
@@ -139,8 +148,8 @@ const CreateNote = ({ setNotes }) => {
           onChange={handleManualEdit}
         ></textarea>
       </form>
-      <div className="btn ai__btn" onClick={handleSubmit}>
-        <MdAutoAwesome />
+      <div className="btn ai__btn" onClick={handleAICorrection}>
+        {loading ? <Spinner /> : <MdAutoAwesome />}
       </div>
       <div className="btn add__btn" onClick={startListening}>
         <BsFillMicFill />
@@ -153,5 +162,6 @@ const CreateNote = ({ setNotes }) => {
 const RecordingMessage = () => {
   return <div className="recording-message">Recording...</div>;
 };
+
 
 export default CreateNote;

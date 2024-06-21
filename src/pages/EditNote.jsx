@@ -4,16 +4,23 @@ import { useParams } from "react-router-dom";
 import { IoIosArrowBack } from "react-icons/io";
 import { RiDeleteBin6Line } from "react-icons/ri";
 import { BsFillMicFill } from "react-icons/bs";
+import { MdAutoAwesome } from "react-icons/md";
 import { Link, useNavigate } from "react-router-dom";
 import SpeechRecognition, { useSpeechRecognition } from "react-speech-recognition";
-
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import useCreateDate from "../components/useCreateDate";
+import Spinner from '../components/Spinner';
+
+const API_KEY = import.meta.env.VITE_APP_GEMINI_API_KEY;
+
+const genAI = new GoogleGenerativeAI(API_KEY);
 
 const EditNote = ({ notes, setNotes }) => {
   const { id } = useParams();
   const note = notes.find((item) => item.id == id);
   const [title, setTitle] = useState(note.title);
   const [details, setDetails] = useState(note.details);
+  const [loading, setLoading] = useState(false);
   const date = useCreateDate();
   const navigate = useNavigate();
   const [isRecording, setIsRecording] = useState(false);
@@ -73,9 +80,58 @@ const EditNote = ({ notes, setNotes }) => {
   // Use useEffect to update the 'details' state with the combined transcript
   useEffect(() => {
     if (isRecording) {
-      setDetails(previousTranscript + transcript);
+      setDetails(previousTranscript + ' ' + transcript);
     }
   }, [isRecording, transcript, previousTranscript]);
+
+  const handleManualEdit = (e) => {
+    const editedText = e.target.value;
+    setDetails(editedText);
+  };
+
+  const callGeminiAPI = async (text) => {
+    const model = genAI.getGenerativeModel({
+      model: "gemini-1.5-flash",
+    });
+
+    const generationConfig = {
+      temperature: 0.7,
+      topP: 0.95,
+      topK: 64,
+      maxOutputTokens: 64,
+      responseMimeType: "text/plain",
+    };
+
+    const chatSession = model.startChat({
+      generationConfig,
+      history: [
+        {
+          role: "user",
+          parts: [{ text: `You will be provided with statements, and your task is to rewrite them correctly in standard English. "${text}"` }],
+        },
+      ],
+    });
+
+    try {
+      const result = await chatSession.sendMessage("");
+      return result.response.text() || text;
+    } catch (error) {
+      console.error("Error calling Gemini AI API:", error);
+      return text;
+    }
+  };
+
+  const handleAICorrection = async () => {
+    setLoading(true);
+    try {
+      const correctedText = await callGeminiAPI(details);
+      setDetails(correctedText);
+    } catch (error) {
+      console.error("Error while correcting text with AI:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (!browserSupportsSpeechRecognition) {
     return null;
@@ -106,9 +162,12 @@ const EditNote = ({ notes, setNotes }) => {
           rows="28"
           placeholder="Note details..."
           value={details}
-          onChange={(e) => setDetails(e.target.value)}
+          onChange={handleManualEdit}
         ></textarea>
       </form>
+      <div className="btn ai__btn" onClick={handleAICorrection}>
+        {loading ? <Spinner /> : <MdAutoAwesome />}
+      </div>
       <div className="btn add__btn" onClick={startListening}>
         <BsFillMicFill />
         {isRecording && <RecordingMessage />}
