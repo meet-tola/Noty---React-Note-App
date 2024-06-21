@@ -11,7 +11,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import useCreateDate from "../components/useCreateDate";
 import Spinner from '../components/Spinner';
 
-const API_KEY = import.meta.env.VITE_APP_GEMINI_API_KEY;
+const API_KEY = import.meta.env.VITE_APP_GEMINI_API_KEY || process.env.VITE_APP_GEMINI_API_KEY;
 
 const genAI = new GoogleGenerativeAI(API_KEY);
 
